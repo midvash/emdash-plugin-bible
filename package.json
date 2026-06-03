@@ -20,7 +20,7 @@
 		"./runtime": "./src/runtime.ts",
 		"./middleware": "./src/middleware.ts"
 	},
-	"files": ["src", "README.md"],
+	"files": ["src", "README.md", "README.pt-BR.md", "README.es.md"],
 	"scripts": {
 		"typecheck": "tsc --noEmit"
 	},
