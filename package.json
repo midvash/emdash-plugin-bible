@@ -1,0 +1,35 @@
+{
+	"name": "@midvash/emdash-plugin-bible",
+	"version": "0.1.0",
+	"description": "EmDash plugin: auto-detect Bible references in content and render verse tooltips on hover. Powered by the public Midvash API (https://api.midvash.com).",
+	"type": "module",
+	"keywords": ["emdash", "emdash-plugin", "cms", "bible", "midvash", "tooltip", "verses"],
+	"license": "MIT",
+	"author": "Neto Gregório",
+	"homepage": "https://midvash.com",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/midvash/emdash-plugin-bible.git"
+	},
+	"bugs": {
+		"url": "https://github.com/midvash/emdash-plugin-bible/issues"
+	},
+	"exports": {
+		".": "./src/index.ts",
+		"./sandbox": "./src/sandbox-entry.ts",
+		"./runtime": "./src/runtime.ts",
+		"./middleware": "./src/middleware.ts"
+	},
+	"files": ["src", "README.md"],
+	"scripts": {
+		"typecheck": "tsc --noEmit"
+	},
+	"peerDependencies": {
+		"emdash": "^0.16.0"
+	},
+	"devDependencies": {
+		"astro": "^6.0.0",
+		"emdash": "^0.16.1",
+		"typescript": "^5.6.0"
+	}
+}
