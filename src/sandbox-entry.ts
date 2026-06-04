@@ -27,6 +27,7 @@ import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 import { displayName, type Language } from "./lib/books.ts";
 import { findReferences, parseReference } from "./lib/parser.ts";
 import { buildReadMoreUrl, fetchVerse, fetchVersions } from "./lib/midvash.ts";
+import { getBibleByMidvashSnippets } from "./runtime.ts";
 import {
 	DEFAULTS,
 	SETTINGS_FIELDS,
@@ -121,6 +122,40 @@ export default {
 						await ctx.kv.set(`settings:${k}`, v);
 					}
 				}
+			},
+		},
+
+		/**
+		 * page:fragments — inject the tooltip CSS/JS into every page automatically,
+		 * so the host doesn't have to edit its base layout or call the runtime
+		 * helper by hand. Reuses getBibleByMidvashSnippets (shared settings + the
+		 * memoized JS/CSS): the <style> goes in <head>, the <script> at body end.
+		 *
+		 * Fires only for in-process (trusted) registration via `plugins: []` —
+		 * EmDash runs page:fragments through the HookPipeline, which sandboxed
+		 * plugins don't join (they get page:metadata only). When registered
+		 * sandboxed, the runtime helper stays the manual fallback.
+		 */
+		"page:fragments": {
+			handler: async (_event, ctx) => {
+				const { enabled, js, css } = await getBibleByMidvashSnippets((_id, key) =>
+					ctx.kv.get<unknown>(`settings:${key}`),
+				);
+				if (!enabled) return null;
+				return [
+					{
+						kind: "html",
+						placement: "head",
+						html: `<style>${css}</style>`,
+						key: "bible-by-midvash-css",
+					},
+					{
+						kind: "inline-script",
+						placement: "body:end",
+						code: js,
+						key: "bible-by-midvash-js",
+					},
+				];
 			},
 		},
 	},
