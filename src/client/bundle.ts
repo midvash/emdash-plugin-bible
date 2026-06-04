@@ -25,9 +25,11 @@ export const CLIENT_JS = String.raw`
 	};
 
 	var API_PREFIX = "/_emdash/api/plugins/bible-by-midvash";
+	var TOOLTIP_ID = "midvash-tooltip";
 	var PROCESSED = new WeakSet();
 	var SESSION_CACHE = new Map();
 	var ACTIVE_TOOLTIP = null;
+	var ACTIVE_TRIGGER = null;
 	var HIDE_TIMER = null;
 
 	// --- DOM scanning -----------------------------------------------------
@@ -96,6 +98,7 @@ export const CLIENT_JS = String.raw`
 		if (ACTIVE_TOOLTIP) return ACTIVE_TOOLTIP;
 		var el = document.createElement("div");
 		el.className = "midvash-tooltip";
+		el.id = TOOLTIP_ID;
 		el.setAttribute("role", "tooltip");
 		el.setAttribute("data-theme", SETTINGS.theme || "auto");
 		el.style.display = "none";
@@ -172,11 +175,18 @@ export const CLIENT_JS = String.raw`
 				escapeHtml(STRINGS.loading) + "</div>";
 	}
 
+	function hideTooltip() {
+		if (ACTIVE_TOOLTIP) ACTIVE_TOOLTIP.style.display = "none";
+		// Drop the aria link so the reference isn't described by a hidden tooltip.
+		if (ACTIVE_TRIGGER) {
+			ACTIVE_TRIGGER.removeAttribute("aria-describedby");
+			ACTIVE_TRIGGER = null;
+		}
+	}
+
 	function scheduleHide() {
 		clearTimeout(HIDE_TIMER);
-		HIDE_TIMER = setTimeout(function () {
-			if (ACTIVE_TOOLTIP) ACTIVE_TOOLTIP.style.display = "none";
-		}, 200);
+		HIDE_TIMER = setTimeout(hideTooltip, 200);
 	}
 
 	// --- Lookup -----------------------------------------------------------
@@ -203,6 +213,13 @@ export const CLIENT_JS = String.raw`
 		if (!ref) return;
 		var tip = ensureTooltip();
 		clearTimeout(HIDE_TIMER);
+		// Associate the trigger with the tooltip so screen readers announce the
+		// verse text; move the link if switching from a previous reference.
+		if (ACTIVE_TRIGGER && ACTIVE_TRIGGER !== target) {
+			ACTIVE_TRIGGER.removeAttribute("aria-describedby");
+		}
+		ACTIVE_TRIGGER = target;
+		target.setAttribute("aria-describedby", TOOLTIP_ID);
 		renderLoading(tip, ref);
 		tip.style.display = "block";
 		positionTooltip(target, tip);
@@ -234,8 +251,15 @@ export const CLIENT_JS = String.raw`
 		document.addEventListener("focusout", function (e) {
 			if (e.target.classList && e.target.classList.contains("midvash-ref")) scheduleHide();
 		});
+		// Escape closes the tooltip immediately (focus stays on the trigger).
+		document.addEventListener("keydown", function (e) {
+			if ((e.key === "Escape" || e.key === "Esc") && ACTIVE_TOOLTIP && ACTIVE_TOOLTIP.style.display !== "none") {
+				clearTimeout(HIDE_TIMER);
+				hideTooltip();
+			}
+		});
 		window.addEventListener("scroll", function () {
-			if (ACTIVE_TOOLTIP) ACTIVE_TOOLTIP.style.display = "none";
+			hideTooltip();
 		}, { passive: true });
 	}
 
