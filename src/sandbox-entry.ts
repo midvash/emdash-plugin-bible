@@ -4,18 +4,29 @@
  * Routes:
  *   GET /lookup?ref=...&v=...   public — resolve a single reference
  *   GET /versions?lang=...      public — list versions (cached daily)
- *   GET /client.js              public — DOM scanner + tooltip script
- *   GET /client.css             public — tooltip styles
  *   GET /settings               admin  — read all settings
  *   POST /settings              admin  — patch settings (used by admin UI)
+ *
+ * Client assets (tooltip JS/CSS) are intentionally NOT served from a route.
+ * EmDash 0.16+ always JSON-wraps a plugin route's return value as
+ * `{ data: ... }`, so there is no supported way to emit a raw JS/CSS body —
+ * the old `client.js` / `client.css` routes always 500'd. The assets are
+ * inlined into the host layout via `@midvash/emdash-plugin-bible/runtime`
+ * (`getBibleByMidvashSnippets`) or injected automatically through the
+ * `page:fragments` hook.
+ *
+ * Error handling: handlers throw `PluginRouteError` (not `new Response`).
+ * EmDash treats any other thrown value as an INTERNAL_ERROR and masks it as
+ * a generic 500 "Plugin route error"; `PluginRouteError` is the supported way
+ * to return a real status code + message.
  */
 
+import { PluginRouteError } from "emdash";
 import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 
-import { BOOKS, displayName, type Language } from "./lib/books.ts";
+import { displayName, type Language } from "./lib/books.ts";
 import { findReferences, parseReference } from "./lib/parser.ts";
 import { buildReadMoreUrl, fetchVerse, fetchVersions } from "./lib/midvash.ts";
-import { CLIENT_CSS, CLIENT_JS } from "./client/bundle.ts";
 
 interface Settings {
 	enabled: boolean;
@@ -60,30 +71,6 @@ async function loadSettings(ctx: PluginContext): Promise<Settings> {
 		if (v !== null && v !== undefined) (out as Record<string, unknown>)[key] = v;
 	}
 	return out;
-}
-
-/** Build the regex pattern (as a string) that the client uses to scan the DOM. */
-function buildClientPattern(language: Language): { pattern: string; flags: string } {
-	const names = new Set<string>();
-	for (const book of BOOKS) {
-		// Include matching language + English (people often mix; Latin abbrev are universal).
-		for (const n of book.names[language]) names.add(n);
-		for (const n of book.names.en) names.add(n);
-	}
-	const sorted = [...names].sort((a, b) => b.length - a.length);
-	const escaped = sorted.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-	const namePattern = escaped.join("|");
-	return {
-		pattern: `(?<![\\p{L}\\p{N}])(?:${namePattern})\\s*\\d{1,3}(?:\\s*[:.]\\s*\\d{1,3}(?:\\s*[-–—]\\s*\\d{1,3})?)?(?![\\p{L}])`,
-		flags: "giu",
-	};
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: { "Content-Type": "application/json; charset=utf-8" },
-	});
 }
 
 async function renderSettingsBlocks(ctx: PluginContext): Promise<unknown[]> {
@@ -235,16 +222,6 @@ async function renderSettingsBlocks(ctx: PluginContext): Promise<unknown[]> {
 	];
 }
 
-function textResponse(body: string, contentType: string): Response {
-	return new Response(body, {
-		status: 200,
-		headers: {
-			"Content-Type": contentType,
-			"Cache-Control": "public, max-age=300",
-		},
-	});
-}
-
 export default {
 	hooks: {
 		"plugin:install": {
@@ -266,16 +243,20 @@ export default {
 			handler: async (routeCtx: any, ctx: PluginContext) => {
 				const url = new URL(routeCtx.request.url);
 				const refRaw = url.searchParams.get("ref");
-				if (!refRaw) throw new Response("Missing ?ref", { status: 400 });
+				if (!refRaw) throw new PluginRouteError("MISSING_REF", "Missing ?ref", 400);
 
 				const settings = await loadSettings(ctx);
 				const version = url.searchParams.get("v") || settings.defaultVersion;
 				const language = (url.searchParams.get("lang") as Language) || settings.language;
 
 				const parsed = parseReference(refRaw);
-				if (!parsed) throw new Response("Unrecognized reference", { status: 422 });
+				if (!parsed) {
+					throw new PluginRouteError("UNRECOGNIZED_REFERENCE", "Unrecognized reference", 422);
+				}
 
-				if (!ctx.http) throw new Response("Network capability missing", { status: 500 });
+				if (!ctx.http) {
+					throw new PluginRouteError("NETWORK_UNAVAILABLE", "Network capability missing", 500);
+				}
 
 				const verse = await fetchVerse(
 					parsed,
@@ -290,7 +271,7 @@ export default {
 				);
 
 				if (!verse) {
-					throw new Response("Upstream lookup failed", { status: 502 });
+					throw new PluginRouteError("UPSTREAM_ERROR", "Upstream lookup failed", 502);
 				}
 
 				// Build the display reference in the requested language. We prefer
@@ -320,45 +301,15 @@ export default {
 				const url = new URL(routeCtx.request.url);
 				const lang = url.searchParams.get("lang") || undefined;
 				const settings = await loadSettings(ctx);
-				if (!ctx.http) throw new Response("Network capability missing", { status: 500 });
-				const data = await fetchVersions(lang, settings.apiTimeoutMs, ctx.kv, ctx.http);
-				if (!data) throw new Response("Upstream failed", { status: 502 });
-				return data;
-			},
-		},
-
-		"client.js": {
-			public: true,
-			handler: async (_routeCtx: any, ctx: PluginContext) => {
-				const settings = await loadSettings(ctx);
-				const { pattern, flags } = buildClientPattern(settings.language);
-				const clientSettings = {
-					enabled: settings.enabled,
-					selectors: settings.selectors,
-					theme: settings.theme,
-					showVersionBadge: settings.showVersionBadge,
-					showReadMore: settings.showReadMore,
-					pattern,
-					patternFlags: flags,
-				};
-				const js = CLIENT_JS.replace("__SETTINGS__", JSON.stringify(clientSettings));
-				throw textResponse(js, "application/javascript; charset=utf-8");
-			},
-		},
-
-		"client.css": {
-			public: true,
-			handler: async (_routeCtx: any, ctx: PluginContext) => {
-				const settings = await loadSettings(ctx);
-				const overrides = `
-:root {
-	--midvash-link-color: ${settings.linkColor};
-	--midvash-underline-color: ${settings.underlineColor};
-	--midvash-underline-style: ${settings.underlineStyle};
-	--midvash-underline-line: ${settings.underlineLinks ? "underline" : "none"};
-}
-`;
-				throw textResponse(CLIENT_CSS + "\n" + overrides, "text/css; charset=utf-8");
+				if (!ctx.http) {
+					throw new PluginRouteError("NETWORK_UNAVAILABLE", "Network capability missing", 500);
+				}
+				const result = await fetchVersions(lang, settings.apiTimeoutMs, ctx.kv, ctx.http);
+				if (!result) throw new PluginRouteError("UPSTREAM_ERROR", "Upstream failed", 502);
+				// EmDash wraps a route's return value in `{ data: ... }`. fetchVersions
+				// already returns `{ data: [...] }`, so returning it whole would double-wrap
+				// (`{ data: { data: [...] } }`). Return the inner array to match /lookup.
+				return result.data;
 			},
 		},
 
