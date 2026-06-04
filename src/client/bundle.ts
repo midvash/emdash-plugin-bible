@@ -32,6 +32,64 @@ export const CLIENT_JS = String.raw`
 	var ACTIVE_TRIGGER = null;
 	var HIDE_TIMER = null;
 
+	// --- URL building (client-only fallback — issue #49 / SEO-A) -----------
+	// When the SSR middleware isn't registered, the client has to produce
+	// real <a href> anchors so Googlebot sees the link. The server passes
+	// language, defaultVersion and a small nameToSlug map so we can build
+	// the same URL shape as the SSR linkifier without shipping the books
+	// table.
+
+	var LANG = SETTINGS.language || "pt-br";
+	var VERSION = SETTINGS.defaultVersion || "naa";
+	var NAME_TO_SLUG = SETTINGS.nameToSlug || {};
+
+	function normalizeName(s) {
+		return String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+	}
+
+	function resolveSlug(name) {
+		var key = normalizeName(name);
+		// Accent-aware override for "Jó" → job (vs accent-stripped "jo" → john).
+		// The server's resolveSlug() handles this too; we replicate the single
+		// override case the books table needs here so the client URL matches.
+		var raw = String(name).toLowerCase();
+		if (raw === "jó") return "job";
+		return NAME_TO_SLUG[key] || null;
+	}
+
+	function localizedSlug(slug) {
+		// midvash.com accepts the English slug and 307-redirects, so this is
+		// purely cosmetic — but it makes the URL look right when crawled.
+		// For en we already have the right slug; for pt-br/es the server-
+		// passed nameToSlug always returns the English slug, so we lower-
+		// case for safety.
+		return (slug || "").toLowerCase();
+	}
+
+	function buildHref(name, chapter, verse, verseEnd) {
+		var slug = resolveSlug(name);
+		if (!slug) return null;
+		var versePath = verse === undefined || verse === null
+			? String(chapter)
+			: (verseEnd && verseEnd !== verse)
+				? chapter + "/" + verse + "-" + verseEnd
+				: chapter + "/" + verse;
+		return "https://midvash.com/" + LANG + "/" + VERSION + "/" + localizedSlug(slug) + "/" + versePath;
+	}
+
+	function safeHttpUrl(u) {
+		// Defense-in-depth (#42): readMoreUrl arrives over /lookup; only
+		// pass http(s) schemes into an href. Anything else (javascript:,
+		// data:, vbscript:, file:, …) gets dropped — the tooltip still
+		// renders the verse, just without the "Ler mais" link.
+		try {
+			var p = new URL(String(u), "https://example.com").protocol;
+			return (p === "https:" || p === "http:") ? String(u) : null;
+		} catch (e) {
+			return null;
+		}
+	}
+
 	// --- DOM scanning -----------------------------------------------------
 
 	var selectors = (SETTINGS.selectors || "article")
@@ -76,13 +134,36 @@ export const CLIENT_JS = String.raw`
 			if (m.index > lastIndex) {
 				fragments.appendChild(document.createTextNode(text.slice(lastIndex, m.index)));
 			}
-			var span = document.createElement("span");
-			span.className = "midvash-ref";
-			span.setAttribute("data-ref", m[0].replace(/\s+$/, ""));
-			span.tabIndex = 0;
-			span.textContent = m[0].replace(/\s+$/, "");
-			fragments.appendChild(span);
-			lastIndex = m.index + m[0].replace(/\s+$/, "").length;
+			// Strip trailing whitespace from the matched substring (the regex
+			// allows whitespace between the book name and the chapter number).
+			var matchedText = m[0].replace(/\s+$/, "");
+			var matchedLen = matchedText.length;
+			var name = m[1];
+			var chapter = parseInt(m[2], 10);
+			var verse = m[3] === undefined ? null : parseInt(m[3], 10);
+			var verseEnd = m[4] === undefined ? null : parseInt(m[4], 10);
+			var href = buildHref(name, chapter, verse, verseEnd);
+
+			// SEO (#49): render a real <a href> so Googlebot sees the link
+			// even when the SSR middleware wasn't registered.
+			var el;
+			if (href) {
+				el = document.createElement("a");
+				el.setAttribute("href", href);
+				el.setAttribute("rel", "noopener");
+				el.setAttribute("title", matchedText);
+			} else {
+				// Unknown name (shouldn't happen — the regex used the same
+				// names — but stay safe). Fall back to a span so behavior
+				// degrades gracefully.
+				el = document.createElement("span");
+			}
+			el.className = "midvash-ref";
+			el.setAttribute("data-ref", matchedText);
+			el.tabIndex = 0;
+			el.textContent = matchedText;
+			fragments.appendChild(el);
+			lastIndex = m.index + matchedLen;
 		}
 		if (fragments) {
 			if (lastIndex < text.length) {
@@ -141,8 +222,10 @@ export const CLIENT_JS = String.raw`
 			: "";
 		var ref = escapeHtml(payload.reference || "");
 		var text = escapeHtml(payload.text || "");
-		var more = SETTINGS.showReadMore && payload.readMoreUrl
-			? '<a class="midvash-tooltip__link" href="' + escapeHtml(payload.readMoreUrl) +
+		// #42: only render the read-more link when readMoreUrl is http(s).
+		var safeMore = SETTINGS.showReadMore ? safeHttpUrl(payload.readMoreUrl) : null;
+		var more = safeMore
+			? '<a class="midvash-tooltip__link" href="' + escapeHtml(safeMore) +
 				'" target="_blank" rel="noopener">' + escapeHtml(STRINGS.readMore) + "</a>"
 			: "";
 		tip.innerHTML =
@@ -152,7 +235,10 @@ export const CLIENT_JS = String.raw`
 				"</span>" +
 				badge +
 			"</header>" +
-			'<div class="midvash-tooltip__body">' + text + "</div>" +
+			// #38: aria-live="polite" so screen readers announce the verse
+			// when it replaces "Carregando…". aria-atomic re-announces the
+			// whole body, not just the diff.
+			'<div class="midvash-tooltip__body" aria-live="polite" aria-atomic="true">' + text + "</div>" +
 			(more ? '<footer class="midvash-tooltip__footer">' + more + "</footer>" : "");
 	}
 
@@ -161,7 +247,7 @@ export const CLIENT_JS = String.raw`
 			'<header class="midvash-tooltip__header">' +
 				'<span class="midvash-tooltip__ref">' + escapeHtml(ref) + "</span>" +
 			"</header>" +
-			'<div class="midvash-tooltip__body midvash-tooltip__body--error">' +
+			'<div class="midvash-tooltip__body midvash-tooltip__body--error" aria-live="polite" aria-atomic="true">' +
 				escapeHtml(STRINGS.error) +
 			"</div>";
 	}
@@ -171,7 +257,7 @@ export const CLIENT_JS = String.raw`
 			'<header class="midvash-tooltip__header">' +
 				'<span class="midvash-tooltip__ref">' + escapeHtml(ref) + "</span>" +
 			"</header>" +
-			'<div class="midvash-tooltip__body midvash-tooltip__body--loading">' +
+			'<div class="midvash-tooltip__body midvash-tooltip__body--loading" aria-live="polite" aria-atomic="true">' +
 				escapeHtml(STRINGS.loading) + "</div>";
 	}
 
@@ -187,6 +273,10 @@ export const CLIENT_JS = String.raw`
 	function scheduleHide() {
 		clearTimeout(HIDE_TIMER);
 		HIDE_TIMER = setTimeout(hideTooltip, 200);
+	}
+
+	function tooltipIsVisible() {
+		return ACTIVE_TOOLTIP && ACTIVE_TOOLTIP.style.display !== "none";
 	}
 
 	// --- Lookup -----------------------------------------------------------
@@ -236,6 +326,18 @@ export const CLIENT_JS = String.raw`
 		});
 	}
 
+	function isTouchDevice() {
+		// Issue #36: on coarse-pointer devices the tooltip can't appear on
+		// hover, so we open it on tap. We re-evaluate per event because
+		// hybrid devices (Surface, iPad with magic keyboard) may switch.
+		try {
+			return window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+		} catch (e) {
+			// Fallback: no PointerEvent → assume mouse; with touch points → coarse.
+			return ("ontouchstart" in window) || (navigator.maxTouchPoints || 0) > 0;
+		}
+	}
+
 	function attachListeners() {
 		document.addEventListener("mouseover", function (e) {
 			var t = e.target.closest && e.target.closest(".midvash-ref");
@@ -251,9 +353,37 @@ export const CLIENT_JS = String.raw`
 		document.addEventListener("focusout", function (e) {
 			if (e.target.classList && e.target.classList.contains("midvash-ref")) scheduleHide();
 		});
+
+		// Touch / click handling (#36).
+		// On coarse-pointer devices:
+		//   - First tap on a .midvash-ref opens the tooltip; navigation blocked.
+		//   - Second tap on the SAME .midvash-ref (tooltip still active) is
+		//     allowed through, so the user reaches midvash.com.
+		//   - Tap anywhere else closes the tooltip.
+		// On mouse devices: click is NOT intercepted — hover already shows
+		// the tooltip, and clicking through is the desktop UX users expect.
+		document.addEventListener("click", function (e) {
+			if (!isTouchDevice()) return;
+			var t = e.target.closest && e.target.closest(".midvash-ref");
+			if (t) {
+				var sameRef = ACTIVE_TRIGGER === t && tooltipIsVisible();
+				if (!sameRef) {
+					e.preventDefault();
+					showFor(t);
+				}
+				// else: second tap → let the click navigate (no preventDefault).
+				return;
+			}
+			// Tap outside any ref → close the tooltip.
+			if (tooltipIsVisible()) {
+				clearTimeout(HIDE_TIMER);
+				hideTooltip();
+			}
+		});
+
 		// Escape closes the tooltip immediately (focus stays on the trigger).
 		document.addEventListener("keydown", function (e) {
-			if ((e.key === "Escape" || e.key === "Esc") && ACTIVE_TOOLTIP && ACTIVE_TOOLTIP.style.display !== "none") {
+			if ((e.key === "Escape" || e.key === "Esc") && tooltipIsVisible()) {
 				clearTimeout(HIDE_TIMER);
 				hideTooltip();
 			}
@@ -287,11 +417,12 @@ export const CLIENT_JS = String.raw`
 	function init() {
 		// References are linkified at SSR time by the Astro middleware, so the
 		// .midvash-ref anchors already exist in the HTML (good for SEO).
-		// We only need to attach hover/focus listeners.
+		// We only need to attach hover/focus/tap listeners.
 		// As a safety net for content that bypassed the middleware (dynamic
-		// inserts, client-only renders), we also scan once if the page seems
-		// to have NO server-side anchors but DOES contain text matching the
-		// pattern.
+		// inserts, client-only renders, or sites that simply forgot to register
+		// the middleware), we also scan once if the page has NO server-side
+		// anchors. The fallback now produces real <a href> elements too — see
+		// wrapMatchesInTextNode (issue #49).
 		var hasSsrLinks = !!document.querySelector(".midvash-ref");
 		if (!hasSsrLinks) {
 			selectors.forEach(function (sel) {
