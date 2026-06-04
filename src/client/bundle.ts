@@ -209,9 +209,17 @@ export const CLIENT_JS = String.raw`
 	}
 
 	function escapeHtml(s) {
+		// IMPORTANT: do NOT write a forward-slash-LT-forward-slash-g regex
+		// literal here. Astro/EmDash rewrite every literal LT-slash inside
+		// script content to LT-backslash-slash (XSS hardening so a stray
+		// closing-script tag cannot break out). That rewrite corrupts any
+		// regex literal that contains the two-char LT-slash sequence,
+		// throwing SyntaxError at parse time and killing the whole IIFE
+		// silently. Use a character class instead: /[<]/g has no LT-slash
+		// sequence and survives the escape unchanged.
 		return String(s)
 			.replace(/&/g, "&amp;")
-			.replace(/</g, "&lt;")
+			.replace(/[<]/g, "&lt;")
 			.replace(/>/g, "&gt;")
 			.replace(/"/g, "&quot;");
 	}
