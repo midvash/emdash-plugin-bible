@@ -47,8 +47,12 @@ jobs:
     # Every human PR must add a changeset so versions/CHANGELOG bump correctly.
     # For docs/CI-only PRs that shouldn't release, add an empty one:
     #   npx changeset add --empty
-    # Dependabot PRs are exempt (they bump dev-deps/Actions — no package release).
-    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    # Exempt: Dependabot (dev-deps/Actions bumps) and the Changesets release PR
+    # (the "changeset-release/*" branch consumes changesets, so it has none left).
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.actor != 'dependabot[bot]' &&
+      !startsWith(github.head_ref, 'changeset-release')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
