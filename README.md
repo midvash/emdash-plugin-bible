@@ -49,9 +49,22 @@ const { js, css, enabled } = await getBibleByMidvashSnippets(getPluginSetting);
 )}
 ```
 
-### Real `<a>` links for SEO (optional)
+### Real `<a>` links for SEO (recommended)
 
-Add the middleware to wrap references in real `<a href>` anchors in your SSR HTML, so crawlers index them:
+The whole point of this plugin is **SEO** — references in your blog content
+should become real `<a href>` anchors that pass link equity to **midvash.com**.
+
+> **Two layers, both produce real anchors:**
+> 1. **SSR middleware (recommended)** — wraps references in the SSR HTML
+>    before it ships, so Googlebot sees the links on first render. Lowest
+>    risk of a crawler missing them.
+> 2. **Client fallback (automatic, since v0.3.0)** — if you forget to wire
+>    the middleware, the client script *still* renders the references as
+>    real `<a href>` elements (not `<span>`) on first paint. Modern
+>    Googlebot runs JS, so the links are picked up — but the SSR path is
+>    safer (no JS dependency, no rendering wave).
+
+Add the middleware:
 
 ```ts
 // src/middleware.ts
@@ -61,11 +74,44 @@ import { bibleLinkifier } from "@midvash/emdash-plugin-bible/middleware";
 export const onRequest = sequence(bibleLinkifier());
 ```
 
-**Trade-off:** the middleware rewrites the whole HTML body of every page
-(`response.text()` → transform → new `Response`), so it adds CPU/latency on each
-request — enable it when SEO link equity matters more than that per-page cost.
-The client script detects these SSR anchors and only attaches listeners to them
-(it never double-wraps). It composes with other middlewares via `sequence(...)`.
+That's it. Both paths emit identical anchors:
+
+```html
+<a class="midvash-ref"
+   href="https://midvash.com/pt-br/naa/joao/3/16"
+   title="João 3:16"
+   data-ref="João 3:16"
+   rel="noopener">João 3:16</a>
+```
+
+**SEO contract:**
+- ✅ No `rel="nofollow"` — link equity passes.
+- ✅ No `target="_blank"` — same-tab navigation (crawlers prefer it; users on
+  desktop ctrl/cmd-click for new tab, mobile users two-tap, see "Mobile" below).
+- ✅ `title="<reference>"` — explicit label for crawlers and assistive tech.
+- ✅ **Scoped to article content.** Since v0.3.0 the SSR linkifier skips page
+  chrome (`<nav>`, `<header>`, `<footer>`, `<aside>`) and non-content widgets
+  (`<title>`, `<option>`, `<button>`, `<svg>`, …). Sitewide-repeated links
+  would read as over-optimization, so the plugin avoids them by default.
+
+**Trade-off:** the middleware rewrites the HTML body of every page
+(`response.text()` → transform → new `Response`). v0.3.0 added a fast-path
+that returns the original string when no reference candidate exists, so the
+overhead on chrome/empty pages is near-zero — but pages with text still pay
+a streaming-parse cost. It composes with other middlewares via
+`sequence(...)`.
+
+### Mobile / touch behavior
+
+Since v0.3.0, on touch devices (`pointer: coarse`):
+
+- **First tap** on a reference opens the tooltip (navigation blocked).
+- **Second tap** on the same reference lets the click through, so the user
+  reaches midvash.com.
+- **Tap outside** closes the tooltip.
+
+This preserves the SEO link (Googlebot still follows it) while fixing the
+"tap navigates the user off the page" bug.
 
 ## Configuration
 

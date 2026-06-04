@@ -49,9 +49,23 @@ const { js, css, enabled } = await getBibleByMidvashSnippets(getPluginSetting);
 )}
 ```
 
-### Enlaces `<a>` reales para SEO (opcional)
+### Enlaces `<a>` reales para SEO (recomendado)
 
-Agrega el middleware para envolver las referencias en anclas `<a href>` reales en el HTML SSR, para que los crawlers las indexen:
+El objetivo de este plugin es **SEO** — las referencias en el contenido de
+tu blog deben convertirse en anclas `<a href>` reales que pasen link equity
+a **midvash.com**.
+
+> **Dos capas, ambas producen anclas reales:**
+> 1. **Middleware SSR (recomendado)** — envuelve las referencias en el HTML
+>    SSR antes del envío, Googlebot ve los enlaces en el primer render.
+>    Menor riesgo de que un crawler los pierda.
+> 2. **Fallback en el cliente (automático, desde 0.3.0)** — si olvidas
+>    registrar el middleware, el script del cliente *aún* renderiza las
+>    referencias como `<a href>` reales (no `<span>`) en el primer paint.
+>    Googlebot moderno ejecuta JS, así que los enlaces se captan — pero la
+>    ruta SSR es más segura (sin dependencia de JS).
+
+Agrega el middleware:
 
 ```ts
 // src/middleware.ts
@@ -61,12 +75,47 @@ import { bibleLinkifier } from "@midvash/emdash-plugin-bible/middleware";
 export const onRequest = sequence(bibleLinkifier());
 ```
 
-**Compensación:** el middleware reescribe todo el HTML de cada página
-(`response.text()` → transforma → nuevo `Response`), así que añade CPU/latencia en
-cada request — actívalo cuando el link equity de SEO importe más que ese coste por
-página. El script del cliente detecta esas anclas de SSR y solo adjunta los
-listeners a ellas (nunca duplica). Se compone con otros middlewares vía
-`sequence(...)`.
+Eso es todo. Ambas rutas emiten anclas idénticas:
+
+```html
+<a class="midvash-ref"
+   href="https://midvash.com/es/rvr/juan/3/16"
+   title="Juan 3:16"
+   data-ref="Juan 3:16"
+   rel="noopener">Juan 3:16</a>
+```
+
+**Contrato SEO:**
+- ✅ Sin `rel="nofollow"` — el link equity pasa.
+- ✅ Sin `target="_blank"` — navegación en la misma pestaña (los crawlers
+  prefieren; usuarios en desktop ctrl/cmd-click para nueva pestaña, en
+  móvil usan el doble-tap, ver "Móvil" abajo).
+- ✅ `title="<referencia>"` — etiqueta explícita para crawlers y lectores
+  de pantalla.
+- ✅ **Alcance: solo contenido de artículo.** Desde 0.3.0 el linkifier SSR
+  omite la estructura de página (`<nav>`, `<header>`, `<footer>`,
+  `<aside>`) y widgets sin contenido (`<title>`, `<option>`, `<button>`,
+  `<svg>`, …). Enlaces repetidos en todo el sitio serían vistos como
+  over-optimization, así que el plugin los evita por defecto.
+
+**Compensación:** el middleware reescribe el HTML body de cada página
+(`response.text()` → transforma → nuevo `Response`). La 0.3.0 añadió un
+fast-path que devuelve la cadena original cuando no hay candidato de
+referencia, así que el overhead en páginas de chrome/vacías es casi cero —
+pero las páginas con texto aún pagan el coste del parse. Se compone con
+otros middlewares vía `sequence(...)`.
+
+### Comportamiento móvil / touch
+
+Desde 0.3.0, en dispositivos touch (`pointer: coarse`):
+
+- **Primer toque** en una referencia abre el tooltip (navegación bloqueada).
+- **Segundo toque** en la misma referencia permite el click, llevando al
+  usuario a midvash.com.
+- **Toque fuera** cierra el tooltip.
+
+Esto preserva el enlace SEO (Googlebot sigue siguiéndolo) mientras corrige
+el bug de "tap lleva al usuario fuera de la página".
 
 ## Configuración
 
