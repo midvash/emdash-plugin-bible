@@ -27,50 +27,65 @@ import type { PluginContext, SandboxedPlugin } from "emdash/plugin";
 import { displayName, type Language } from "./lib/books.ts";
 import { findReferences, parseReference } from "./lib/parser.ts";
 import { buildReadMoreUrl, fetchVerse, fetchVersions } from "./lib/midvash.ts";
+import {
+	DEFAULTS,
+	SETTINGS_FIELDS,
+	type SettingsKey,
+	coerceSettings,
+	type BibleSettings,
+	type SettingsField,
+} from "./lib/settings.ts";
 
-interface Settings {
-	enabled: boolean;
-	language: Language;
-	defaultVersion: string;
-	selectors: string;
-	theme: "auto" | "light" | "dark" | "sepia";
-	useCustomColors: boolean;
-	linkColor: string;
-	underlineLinks: boolean;
-	underlineColor: string;
-	underlineStyle: "solid" | "dashed" | "dotted" | "wavy";
-	showVersionBadge: boolean;
-	showReadMore: boolean;
-	cacheEnabled: boolean;
-	cacheTtlSeconds: number;
-	apiTimeoutMs: number;
+type Settings = BibleSettings;
+
+/**
+ * Read every setting from the plugin KV store, validating and coercing each
+ * value against its declared type/enum and falling back to the default on any
+ * mismatch (see `coerceSettings`). A corrupt or wrong-typed KV value can no
+ * longer flow straight into the rendered output.
+ */
+async function loadSettings(ctx: PluginContext): Promise<Settings> {
+	const raw: Record<string, unknown> = {};
+	for (const key of Object.keys(SETTINGS_FIELDS)) {
+		const v = await ctx.kv.get<unknown>(`settings:${key}`);
+		if (v !== null && v !== undefined) raw[key] = v;
+	}
+	return coerceSettings(raw);
 }
 
-const DEFAULTS: Settings = {
-	enabled: true,
-	language: "pt-br",
-	defaultVersion: "naa",
-	selectors: "article\n.prose\n.post-content\nmain",
-	theme: "auto",
-	useCustomColors: false,
-	linkColor: "#B17027",
-	underlineLinks: false,
-	underlineColor: "#E8B45A",
-	underlineStyle: "solid",
-	showVersionBadge: true,
-	showReadMore: true,
-	cacheEnabled: true,
-	cacheTtlSeconds: 2_592_000,
-	apiTimeoutMs: 5000,
-};
-
-async function loadSettings(ctx: PluginContext): Promise<Settings> {
-	const out = { ...DEFAULTS };
-	for (const key of Object.keys(DEFAULTS) as Array<keyof Settings>) {
-		const v = await ctx.kv.get<unknown>(`settings:${key}`);
-		if (v !== null && v !== undefined) (out as Record<string, unknown>)[key] = v;
+/** Map one canonical settings field to its Block Kit form control. */
+function fieldToFormControl(
+	key: SettingsKey,
+	field: SettingsField,
+	current: BibleSettings,
+): Record<string, unknown> {
+	const base = { action_id: key, label: field.label, initial_value: current[key] };
+	switch (field.type) {
+		case "boolean":
+			return { type: "toggle", ...base };
+		case "select":
+			return { type: "select", ...base, options: field.options };
+		case "number":
+			return {
+				type: "number_input",
+				...base,
+				...(field.min !== undefined ? { min: field.min } : {}),
+				...(field.max !== undefined ? { max: field.max } : {}),
+			};
+		case "string":
+			return { type: "text_input", ...base, ...(field.multiline ? { multiline: true } : {}) };
 	}
-	return out;
+}
+
+/**
+ * Build the Block Kit form fields straight from the canonical settings
+ * declaration, so the admin form can never drift from the settings — there is
+ * no hand-maintained field list to keep in sync.
+ */
+function buildSettingsFormFields(current: BibleSettings): Record<string, unknown>[] {
+	return (Object.keys(SETTINGS_FIELDS) as SettingsKey[]).map((key) =>
+		fieldToFormControl(key, SETTINGS_FIELDS[key], current),
+	);
 }
 
 async function renderSettingsBlocks(ctx: PluginContext): Promise<unknown[]> {
@@ -85,134 +100,7 @@ async function renderSettingsBlocks(ctx: PluginContext): Promise<unknown[]> {
 			type: "form",
 			block_id: "settings",
 			submit: { label: "Salvar", action_id: "save" },
-			fields: [
-				{
-					type: "toggle",
-					action_id: "enabled",
-					label: "Ativar detecção",
-					initial_value: s.enabled,
-				},
-				{
-					type: "select",
-					action_id: "language",
-					label: "Idioma",
-					initial_value: s.language,
-					options: [
-						{ value: "pt-br", label: "Português (Brasil)" },
-						{ value: "en", label: "English" },
-						{ value: "es", label: "Español" },
-					],
-				},
-				{
-					type: "select",
-					action_id: "defaultVersion",
-					label: "Versão padrão",
-					initial_value: s.defaultVersion,
-					options: [
-						{ value: "naa", label: "NAA — Nova Almeida Atualizada" },
-						{ value: "ara", label: "ARA — Almeida Revista e Atualizada" },
-						{ value: "arc", label: "ARC — Almeida Revista e Corrigida" },
-						{ value: "acf", label: "ACF — Almeida Corrigida Fiel" },
-						{ value: "nvi", label: "NVI — Nova Versão Internacional" },
-						{ value: "nvt", label: "NVT — Nova Versão Transformadora" },
-						{ value: "ntlh", label: "NTLH — Nova Tradução na Linguagem de Hoje" },
-						{ value: "kja", label: "KJA — King James Atualizada" },
-						{ value: "esv", label: "ESV — English Standard Version" },
-						{ value: "kjv", label: "KJV — King James Version" },
-						{ value: "niv", label: "NIV — New International Version" },
-						{ value: "rvr1960", label: "RVR1960 — Reina-Valera 1960" },
-					],
-				},
-				{
-					type: "text_input",
-					action_id: "selectors",
-					label: "Seletores CSS (um por linha)",
-					initial_value: s.selectors,
-					multiline: true,
-				},
-				{
-					type: "select",
-					action_id: "theme",
-					label: "Tema do tooltip",
-					initial_value: s.theme,
-					options: [
-						{ value: "auto", label: "Automático" },
-						{ value: "light", label: "Pergaminho (claro)" },
-						{ value: "dark", label: "Noite Quente (escuro)" },
-						{ value: "sepia", label: "Sépia" },
-					],
-				},
-				{
-					type: "toggle",
-					action_id: "useCustomColors",
-					label: "Usar cores customizadas",
-					initial_value: s.useCustomColors,
-				},
-				{
-					type: "text_input",
-					action_id: "linkColor",
-					label: "Cor do link (hex) — só ativa se 'Usar cores customizadas' estiver ligado",
-					initial_value: s.linkColor,
-				},
-				{
-					type: "toggle",
-					action_id: "underlineLinks",
-					label: "Sublinhar referências",
-					initial_value: s.underlineLinks,
-				},
-				{
-					type: "text_input",
-					action_id: "underlineColor",
-					label: "Cor do sublinhado",
-					initial_value: s.underlineColor,
-				},
-				{
-					type: "select",
-					action_id: "underlineStyle",
-					label: "Estilo do sublinhado",
-					initial_value: s.underlineStyle,
-					options: [
-						{ value: "solid", label: "Sólido" },
-						{ value: "dashed", label: "Tracejado" },
-						{ value: "dotted", label: "Pontilhado" },
-						{ value: "wavy", label: "Ondulado" },
-					],
-				},
-				{
-					type: "toggle",
-					action_id: "showVersionBadge",
-					label: "Mostrar badge da versão",
-					initial_value: s.showVersionBadge,
-				},
-				{
-					type: "toggle",
-					action_id: "showReadMore",
-					label: "Mostrar link 'Ler mais'",
-					initial_value: s.showReadMore,
-				},
-				{
-					type: "toggle",
-					action_id: "cacheEnabled",
-					label: "Cache de versículos",
-					initial_value: s.cacheEnabled,
-				},
-				{
-					type: "number_input",
-					action_id: "cacheTtlSeconds",
-					label: "Duração do cache (segundos)",
-					initial_value: s.cacheTtlSeconds,
-					min: 60,
-					max: 31_536_000,
-				},
-				{
-					type: "number_input",
-					action_id: "apiTimeoutMs",
-					label: "Timeout da API (ms)",
-					initial_value: s.apiTimeoutMs,
-					min: 500,
-					max: 30_000,
-				},
-			],
+			fields: buildSettingsFormFields(s),
 		},
 		{ type: "divider" },
 		{

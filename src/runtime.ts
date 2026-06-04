@@ -23,41 +23,15 @@
 
 import { BOOKS, type Language } from "./lib/books.ts";
 import { CLIENT_CSS, CLIENT_JS } from "./client/bundle.ts";
+import { DEFAULTS, SETTINGS_FIELDS, coerceSettings, type BibleSettings } from "./lib/settings.ts";
 
-export interface BibleByMidvashSettings {
-	enabled: boolean;
-	language: Language;
-	defaultVersion: string;
-	selectors: string;
-	theme: "auto" | "light" | "dark" | "sepia";
-	/**
-	 * When false (default), the plugin does NOT override link/underline styles
-	 * — references inherit the site's existing link color and decoration. When
-	 * true, the linkColor / underline* values below take effect.
-	 */
-	useCustomColors: boolean;
-	linkColor: string;
-	underlineLinks: boolean;
-	underlineColor: string;
-	underlineStyle: "solid" | "dashed" | "dotted" | "wavy";
-	showVersionBadge: boolean;
-	showReadMore: boolean;
-}
-
-export const DEFAULTS: BibleByMidvashSettings = {
-	enabled: true,
-	language: "pt-br",
-	defaultVersion: "naa",
-	selectors: "article\n.prose\n.post-content\nmain",
-	theme: "auto",
-	useCustomColors: false,
-	linkColor: "#B17027",
-	underlineLinks: false,
-	underlineColor: "#E8B45A",
-	underlineStyle: "solid",
-	showVersionBadge: true,
-	showReadMore: true,
-};
+/**
+ * Resolved plugin settings. The canonical declaration lives in
+ * `./lib/settings`; this alias is kept as the module's public export name
+ * (and `DEFAULTS` is re-exported) so existing consumers keep working.
+ */
+export type BibleByMidvashSettings = BibleSettings;
+export { DEFAULTS };
 
 const PLUGIN_ID = "bible-by-midvash";
 
@@ -98,11 +72,12 @@ export interface InlineSnippets {
  * ready to inline. Falls back to defaults for missing keys.
  */
 export async function getBibleByMidvashSnippets(getSetting: GetSetting): Promise<InlineSnippets> {
-	const resolved = { ...DEFAULTS };
-	for (const key of Object.keys(DEFAULTS) as Array<keyof BibleByMidvashSettings>) {
+	const raw: Record<string, unknown> = {};
+	for (const key of Object.keys(SETTINGS_FIELDS)) {
 		const v = await getSetting(PLUGIN_ID, key);
-		if (v !== null && v !== undefined) (resolved as Record<string, unknown>)[key] = v;
+		if (v !== null && v !== undefined) raw[key] = v;
 	}
+	const resolved = coerceSettings(raw);
 
 	if (!resolved.enabled) {
 		return { enabled: false, js: "", css: "" };
