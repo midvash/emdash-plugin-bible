@@ -66,7 +66,7 @@
 		"node": ">=18"
 	},
 	"peerDependencies": {
-		"emdash": "^0.16.1"
+		"emdash": ">=0.16.1"
 	},
 	"devDependencies": {
 		"@changesets/changelog-github": "^0.7.0",
