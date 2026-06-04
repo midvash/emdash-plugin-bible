@@ -15,7 +15,7 @@
  */
 
 import { CLIENT_CSS, CLIENT_JS } from "../client/bundle.ts";
-import { buildClientPattern } from "./pattern.ts";
+import { buildClientPattern, buildNameToSlug } from "./pattern.ts";
 import { getClientStrings } from "./i18n.ts";
 import type { Settings } from "./settings.ts";
 
@@ -23,6 +23,7 @@ import type { Settings } from "./settings.ts";
 export type ClientAssetSettings = Pick<
 	Settings,
 	| "language"
+	| "defaultVersion"
 	| "selectors"
 	| "theme"
 	| "showVersionBadge"
@@ -61,6 +62,13 @@ export function buildClientAssets(s: ClientAssetSettings): ClientAssets {
 		strings: getClientStrings(s.language),
 		pattern,
 		patternFlags: flags,
+		// Issue #49 / SEO-A: the client-only fallback (when the SSR middleware
+		// isn't registered) builds real <a href> anchors. It needs language,
+		// defaultVersion, and a name→slug map to produce the same URL shape
+		// the SSR linkifier emits.
+		language: s.language,
+		defaultVersion: s.defaultVersion,
+		nameToSlug: buildNameToSlug(s.language),
 	};
 
 	const js = CLIENT_JS.replace("__SETTINGS__", JSON.stringify(clientSettings));
