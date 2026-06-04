@@ -54,7 +54,7 @@
 		"test:watch": "vitest",
 		"coverage": "vitest run --coverage",
 		"check": "npm run typecheck && npm run coverage",
-		"build": "tsdown",
+		"build": "tsdown src/index.ts src/sandbox-entry.ts src/runtime.ts src/middleware.ts --format esm --dts --clean --platform neutral --external emdash --external emdash/plugin --external astro",
 		"bundle": "npm run build && emdash plugin bundle",
 		"bundle:validate": "npm run build && emdash plugin validate",
 		"changeset": "changeset",
