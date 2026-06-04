@@ -41,3 +41,22 @@ jobs:
 
       - name: Validate marketplace bundle
         run: npx emdash plugin validate
+
+  changeset:
+    name: changeset present
+    # Every PR must add a changeset so versions/CHANGELOG bump correctly.
+    # For docs/CI-only PRs that shouldn't release, add an empty one:
+    #   npx changeset add --empty
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Require a changeset
+        run: npx changeset status --since=origin/${{ github.base_ref }}

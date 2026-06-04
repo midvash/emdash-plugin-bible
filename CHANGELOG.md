@@ -27,6 +27,8 @@ suite. **Breaking** changes are marked.
   `npm run bundle` / `npm run bundle:validate` (`emdash plugin bundle`).
 - Single source of truth for settings (`src/lib/settings.ts`): defaults, admin
   schema, and the Block Kit form are all derived from one table.
+- **Accessibility** — the tooltip sets `aria-describedby` on the active reference
+  (so screen readers announce the verse) and closes on **Escape**.
 
 ### Changed
 
@@ -35,7 +37,8 @@ suite. **Breaking** changes are marked.
 - **BREAKING:** removed the default export from the entry — import the named
   `biblePlugin` (required by the `emdash plugin bundle` manifest extractor).
 - **BREAKING:** capability `network:fetch` → `network:request` (the former is
-  deprecated and hard-fails marketplace publish); peer `emdash` → `^0.16.1`.
+  deprecated and hard-fails marketplace publish); peer `emdash` widened to
+  `>=0.16.1` (was `^0.16.0`) so it also accepts 0.17+.
 - The **default-version** list is reconciled with the live Midvash API: 37
   accurate versions across pt-BR / en / es.
 - `loadSettings` now uses a single `kv.list("settings:")` read (was ~15 point
@@ -48,6 +51,11 @@ suite. **Breaking** changes are marked.
   assets — delivery now goes through the `page:fragments` hook (or the
   `getBibleByMidvashSnippets` runtime helper / SSR middleware).
 - Spanish NVI version slug `nvi-es` → `nvies` (the former didn't resolve).
+- `/versions` no longer double-wraps its payload — it returns `{ data: [...] }`
+  (matching `/lookup`) instead of `{ data: { data: [...] } }`.
+- Persisted KV settings are validated/coerced against the schema on read (type
+  checks, enum membership, number clamping), so a corrupt stored value falls back
+  to its default instead of reaching the client or the regex build.
 - `client.css` / inline CSS no longer force the link color when **Use custom
   colors** is off (references inherit the host site's styles).
 - `settings/save` no longer calls `request.json()` (sandboxed routes expose only
