@@ -6,6 +6,40 @@ import { buildClientPattern } from "../src/lib/pattern.ts";
 import { buildNameToSlug } from "../src/lib/pattern.ts";
 import { getClientStrings } from "../src/lib/i18n.ts";
 
+/**
+ * Astro / EmDash escape any literal `</` inside `<script>` content to `<\/`
+ * before shipping the HTML to the browser, so a stray `</script>` can't break
+ * out of the inline script (standard XSS hardening). This breaks a JS regex
+ * LITERAL like `/</g` — `/<\/g` parses as `/<` then a closing `/` then `g`.
+ * Reproduces the failure observed in production at https://samaragregorio.com.br/.
+ *
+ * The wrapper rewrites every `</` → `<\/` the same way the host server does,
+ * then evaluates the script. If any regex literal in the client bundle
+ * contains `</`, this will throw "Invalid regular expression: missing /".
+ */
+function loadClientWithSlashEscape(overrides: Record<string, unknown> = {}) {
+	const { pattern, flags } = buildClientPattern("pt-br");
+	const settings = {
+		enabled: true,
+		selectors: "article",
+		theme: "auto",
+		showVersionBadge: true,
+		showReadMore: true,
+		strings: getClientStrings("pt-br"),
+		pattern,
+		patternFlags: flags,
+		language: "pt-br",
+		defaultVersion: "naa",
+		nameToSlug: buildNameToSlug("pt-br"),
+		...overrides,
+	};
+	let js = CLIENT_JS.replace("__SETTINGS__", JSON.stringify(settings));
+	// Apply the same `</` → `<\/` escape Astro/EmDash do.
+	js = js.replace(/<\//g, "<\\/");
+	// eslint-disable-next-line no-new-func
+	new Function(js)();
+}
+
 /** Evaluate the client IIFE in the happy-dom global scope with given settings. */
 function loadClient(overrides: Record<string, unknown> = {}) {
 	const { pattern, flags } = buildClientPattern("pt-br");
@@ -390,6 +424,7 @@ describe("client bundle (error UX — issue #41)", () => {
 		expect(body.textContent).toContain("Não foi possível carregar");
 	});
 
+	it.todo("PR-5 marker — see describe below for the inline-script regex bug regression test");
 	it("falls back to generic error when fetch itself rejects", async () => {
 		(globalThis as any).fetch = vi.fn(async () => {
 			throw new Error("network down");
@@ -402,5 +437,63 @@ describe("client bundle (error UX — issue #41)", () => {
 		await tick();
 		const body = document.querySelector(".midvash-tooltip__body")!;
 		expect(body.textContent).toContain("Não foi possível carregar");
+	});
+});
+
+describe("client bundle (inline-script </ escape regression — production hotfix)", () => {
+	// Reproduces the failure observed at https://samaragregorio.com.br/.
+	// EmDash/Astro escape every literal `</` in inline script content to `<\/`
+	// so a stray `</script>` can't break out of the surrounding <script> tag.
+	// This silently corrupts any JS regex LITERAL that contains `</`, because
+	// /<\/g parses as /< (regex), then \/g (something else), then ... .
+	//
+	// In production we observed:  SyntaxError: Invalid regular expression: missing /
+	// → buildPattern() in the IIFE catches and returns null
+	// → 0 anchors created, 0 tooltips ever shown
+	//
+	// The fix is to write any `</` inside a regex literal as `/[<]\/.../`
+	// (character class) or via `new RegExp("<", "g")`, so the literal `</`
+	// sequence never appears in source.
+
+	it("evaluates the bundle WITHOUT throwing after </ → <\\/ escape", () => {
+		document.body.innerHTML = "<article><p>João 3:16</p></article>";
+		// If a regex literal in the bundle still contains `</`, this will throw
+		// "Invalid regular expression: missing /" — same error as production.
+		expect(() => loadClientWithSlashEscape()).not.toThrow();
+	});
+
+	it("still produces .midvash-ref anchors when the page ships through the </ escape", () => {
+		document.body.innerHTML = "<article><p>Veja Salmo 139:14 e 1 João 3:1 hoje.</p></article>";
+		loadClientWithSlashEscape();
+		const refs = document.querySelectorAll(".midvash-ref");
+		expect(refs.length).toBeGreaterThan(0);
+	});
+
+	it("escapeHtml still HTML-escapes < (not corrupted by the </ rewrite)", async () => {
+		document.body.innerHTML = "<article><p>João 3:16</p></article>";
+		(globalThis as any).fetch = vi.fn(async () => ({
+			ok: true,
+			json: async () => ({
+				data: {
+					reference: "João 3:16",
+					// Verse text containing a < character — escapeHtml must turn it
+					// into &lt; (proves the /</g regex still works post-escape).
+					text: "Texto com < dentro.",
+					version: "naa",
+					readMoreUrl: "https://midvash.com/pt-br/naa/joao/3/16",
+				},
+			}),
+		}));
+		loadClientWithSlashEscape();
+		const ref = document.querySelector(".midvash-ref")!;
+		ref.dispatchEvent(new Event("mouseover", { bubbles: true }));
+		await new Promise((r) => setTimeout(r, 0));
+		await new Promise((r) => setTimeout(r, 0));
+		const body = document.querySelector(".midvash-tooltip__body")!;
+		// If escapeHtml's /</g regex is broken, the `<` would appear unescaped
+		// (or the tooltip would never render). Confirm the rendered text uses
+		// the entity, NOT a literal "<".
+		expect(body.innerHTML).toContain("&lt;");
+		expect(body.innerHTML).not.toContain("Texto com < dentro");
 	});
 });
