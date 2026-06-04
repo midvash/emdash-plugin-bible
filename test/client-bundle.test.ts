@@ -93,3 +93,30 @@ describe("client bundle (DOM)", () => {
 		expect(document.querySelectorAll(".midvash-ref").length).toBe(0);
 	});
 });
+
+describe("client bundle (accessibility)", () => {
+	it("links the trigger to the tooltip via aria-describedby on hover", async () => {
+		document.body.innerHTML = "<article><p>João 3:16</p></article>";
+		loadClient();
+		const ref = document.querySelector(".midvash-ref")!;
+		ref.dispatchEvent(new Event("mouseover", { bubbles: true }));
+		await tick();
+		const tip = document.querySelector(".midvash-tooltip")!;
+		expect(tip.id).toBe("midvash-tooltip");
+		expect(ref.getAttribute("aria-describedby")).toBe("midvash-tooltip");
+	});
+
+	it("closes on Escape and clears aria-describedby", async () => {
+		document.body.innerHTML = "<article><p>João 3:16</p></article>";
+		loadClient();
+		const ref = document.querySelector(".midvash-ref")!;
+		ref.dispatchEvent(new Event("mouseover", { bubbles: true }));
+		await tick();
+		const tip = document.querySelector(".midvash-tooltip")! as HTMLElement;
+		expect(tip.style.display).toBe("block");
+
+		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		expect(tip.style.display).toBe("none");
+		expect(ref.hasAttribute("aria-describedby")).toBe(false);
+	});
+});
