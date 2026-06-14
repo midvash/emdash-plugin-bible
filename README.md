@@ -4,7 +4,7 @@
 
 Auto-detects Bible references in your EmDash site content and renders verse tooltips on hover. Verse text comes from the public [Midvash API](https://api.midvash.com) — no auth required.
 
-Made by [Midvash](https://midvash.com). Prefer WordPress? See the sibling plugin: [midvash/bible-by-midvash](https://github.com/midvash/bible-by-midvash).
+Made by [Midvash](https://midvash.com). Prefer WordPress? See the sibling plugin: [midvash/bible-wordpress-plugin](https://github.com/midvash/bible-wordpress-plugin).
 
 ## Installation
 
@@ -118,7 +118,7 @@ This preserves the SEO link (Googlebot still follows it) while fixing the
 Open `/_emdash/admin/plugins/bible-by-midvash/settings` in the EmDash admin. Key settings:
 
 - **Language** — pt-BR / en / es (controls which book names are recognized **and the tooltip UI language**)
-- **Default version** — 37 translations across pt-BR / en / es (NAA, ARA, NVI, ACF, ESV, KJV, RVR1960, …), sourced from the live [Midvash API](https://api.midvash.com/v1/versions)
+- **Default version** — 38 translations across pt-BR / en / es (NAA, ARA, NVI, ACF, ESV, KJV, RVR1960, …), sourced from the live [Midvash API](https://api.midvash.com/v1/versions)
 - **CSS selectors** — where references are detected (default: `article`, `.prose`, `.post-content`, `main`)
 - **Tooltip theme** — auto / parchment (light) / warm night (dark) / sepia
 - **Colors & style** — off by default (references inherit your site's link styles); enable **Use custom colors** to override
@@ -184,7 +184,7 @@ npm run bundle            # build + produce dist/<id>-<version>.tar.gz
 
 - 🌐 [midvash.com](https://midvash.com) — the project behind the data
 - 📖 [Midvash API](https://api.midvash.com) — public Bible API (no auth)
-- 🧩 [WordPress version](https://github.com/midvash/bible-by-midvash) — same feature for WordPress
+- 🧩 [WordPress version](https://github.com/midvash/bible-wordpress-plugin) — same feature for WordPress
 
 ## License
 
@@ -206,3 +206,4 @@ Part of [**Midvash**](https://midvash.com) — a free Bible reading & study plat
 | 📦 **Open data** | [`bible-data`](https://github.com/midvash/bible-data) · [`bible-data-js`](https://github.com/midvash/bible-data-js) · [`bible-cross-references`](https://github.com/midvash/bible-cross-references) |
 
 <sub>Free & open, built by [Midvash](https://midvash.com) · [midvash.com](https://midvash.com) · [midvash.app](https://midvash.app)</sub>
+
