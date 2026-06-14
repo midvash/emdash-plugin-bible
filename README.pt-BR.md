@@ -4,7 +4,7 @@
 
 Auto-detecta referências bíblicas no conteúdo do seu site EmDash e renderiza tooltips com o versículo no hover. O texto vem da [Midvash API](https://api.midvash.com) — pública, sem auth.
 
-Feito pela [Midvash](https://midvash.com). Usa WordPress? Veja o plugin irmão: [midvash/bible-by-midvash](https://github.com/midvash/bible-by-midvash).
+Feito pela [Midvash](https://midvash.com). Usa WordPress? Veja o plugin irmão: [midvash/bible-wordpress-plugin](https://github.com/midvash/bible-wordpress-plugin).
 
 ## Instalação
 
@@ -121,7 +121,7 @@ bug de "tap leva o usuário pra fora da página".
 Acesse `/_emdash/admin/plugins/bible-by-midvash/settings` no admin do EmDash. Principais settings:
 
 - **Idioma** — pt-BR / en / es (define quais nomes de livros são reconhecidos **e o idioma da UI do tooltip**)
-- **Versão padrão** — 37 traduções em pt-BR / en / es (NAA, ARA, NVI, ACF, ESV, KJV, RVR1960, …), vindas da [Midvash API](https://api.midvash.com/v1/versions) ao vivo
+- **Versão padrão** — 38 traduções em pt-BR / en / es (NAA, ARA, NVI, ACF, ESV, KJV, RVR1960, …), vindas da [Midvash API](https://api.midvash.com/v1/versions) ao vivo
 - **Seletores CSS** — onde as referências são detectadas (default: `article`, `.prose`, `.post-content`, `main`)
 - **Tema do tooltip** — auto / pergaminho (claro) / noite quente (escuro) / sépia
 - **Cores e estilo** — desligado por padrão (as referências herdam o estilo de link do seu site); ligue **Usar cores customizadas** para sobrescrever
@@ -187,8 +187,9 @@ O `emdash plugin bundle` extrai um `manifest.json` (id, versão, capabilities, r
 
 - 🌐 [midvash.com](https://midvash.com) — o projeto por trás dos dados
 - 📖 [Midvash API](https://api.midvash.com) — API bíblica pública (sem auth)
-- 🧩 [Versão WordPress](https://github.com/midvash/bible-by-midvash) — mesma funcionalidade no WordPress
+- 🧩 [Versão WordPress](https://github.com/midvash/bible-wordpress-plugin) — mesma funcionalidade no WordPress
 
 ## Licença
 
 [MIT](./LICENSE) © [Midvash](https://midvash.com)
+
